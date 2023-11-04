@@ -1,215 +1,144 @@
 ---
-title: "Lab 10"
+title: "Assignment3"
 author: "Katrina Ninh"
 format:
   html:
     embed-resources: true
 ---
 
-## Lab 10 - SQL
+## Text Mining
 
-##Setup
+A new dataset has been added to the data science data repository <https://github.com/USCbiostats/data-science-data/tree/master/03_pubmed>. The dataset contains 3,241 abstracts from articles collected via 5 PubMed searches. The search terms are listed in the second column, `term` and these will serve as the \"documents.\" Your job is to analyse these abstracts to find interesting insights.
+
+1.  Tokenize the abstracts and count the number of each token. Do you see anything interesting? Does removing stop words change what tokens appear as the most frequent? What are the 5 most common tokens for each search term after removing stopwords?
+
+2.  Tokenize the abstracts into bigrams. Find the 10 most common bigrams and visualize them with ggplot2.
+
+3.  Calculate the TF-IDF value for each word-search term combination (here you want the search term to be the \"document\"). What are the 5 tokens from each search term with the highest TF-IDF value? How are the results different from the answers you got in question 1?
+
+Load libraries & file
 
 ```{r}
 
-library(RSQLite)
-library(DBI)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(tidytext)
+library(leaflet)
 
-# Initialize a temporary in memory database
-con <- dbConnect(SQLite(), ":memory:")
-
-if (!file.exists("actor.csv"))
+if (!file.exists("pubmed.csv"))
   download.file(
-    url = "https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/actor.csv",
-    destfile = "actor.csv",
+    url = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/03_pubmed/pubmed.csv",
+    destfile = "pubmed.csv",
     method   = "libcurl",
     timeout  = 60
     )
-actor <- read.csv("actor.csv")
+dat <- read.csv("pubmed.csv")
 
-
-if (!file.exists("rental"))
-  download.file(
-    url = "https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/rental.csv",
-    destfile = "rental.csv",
-    method   = "libcurl",
-    timeout  = 60
-    )
-rental <- read.csv("rental.csv")
-
-
-if (!file.exists("customer.csv"))
-  download.file(
-    url = "https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/customer.csv",
-    destfile = "customer.csv",
-    method   = "libcurl",
-    timeout  = 60
-    )
-customer <- read.csv("customer.csv")
-
-
-if (!file.exists("payment.csv"))
-  download.file(
-    url = "https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/payment_p2007_01.csv",
-    destfile = "payment.csv",
-    method   = "libcurl",
-    timeout  = 60
-    )
-payment <- read.csv("payment.csv")
-
-# Copy data.frames to database
-dbWriteTable(con, "actor", actor)
-dbWriteTable(con, "rental", rental)
-dbWriteTable(con, "customer", customer)
-dbWriteTable(con, "payment", payment)
-
-dbListTables(con)
-
-##head (actor)
-##head (rental)
-##head (customer)
-##head (payment)
+nrow(dat)
+ncol(dat)
 
 ```
 
 ## Question 1
-Edit the code below to retrieve the actor ID, first name and last name for all actors using the actor table. Sort by last name and then by first name
+
+1.  Tokenize the abstracts and count the number of each token. Do you see anything interesting? Does removing stop words change what tokens appear as the most frequent? What are the 5 most common tokens for each search term after removing stopwords?
 
 ```{r}
 
-dbGetQuery(con, "SELECT actor_id, first_name, last_name FROM actor ORDER BY last_name, first_name LIMIT 5;")
+# Tokenizing the abstracts
+words <- dat %>%
+  unnest_tokens(token, abstract)
+
+words %>%
+  count(token, sort = TRUE) %>%
+  top_n(10, n)
 
 ```
+
+There are a lot of stop words before the keyword "covid" - let's remove them
+
+```{r}
+
+## Removing stop words
+
+# Group by "term" and count tokens for each search term
+words %>%
+  anti_join(stop_words, by = c("token" = "word")) %>%
+  group_by(term) %>%
+  count(token, sort=TRUE) %>%
+  top_n(10, n)
+  
+
+unique(words$term)
+
+```
+
+After removing the stop words, the five remaining most frequent words are: "covid", "19", "cancer", "prostate", and "patients".
 
 ## Question 2
-Retrieve the actor ID, first name, and last name for actors whose last name equals ‘WILLIAMS’ or ‘DAVIS’.
+
+Tokenize the abstracts into bigrams. Find the 10 most common bigrams and visualize them with ggplot2
 
 ```{r}
 
-dbGetQuery(con, "SELECT actor_id, first_name, last_name FROM actor WHERE last_name IN ('WILLIAMS', 'DAVIS')")
+# Tokenizing the abstracts into bigrams
+dat %>%
+  unnest_ngrams(ngram, abstract, n = 2) %>%
+  count(ngram, sort = TRUE) %>%
+  top_n(20, n) 
+
+```
+
+At this point, we still see stop words like "of the" and "in the", let's remove them as well.
+
+```{r}
+
+datClean <- dat %>%
+  unnest_ngrams(word, abstract ,n=2) %>%
+  separate (word, c("word1", "word2"),sep = " ") %>%
+  anti_join(
+    tidytext::stop_words, by =c("word1" = "word")
+  ) %>%
+  anti_join(
+    tidytext::stop_words, by =c("word2" = "word")
+  ) %>%
+
+  unite(dat2, word1, word2, sep= " ")
+datClean %>%
+count(dat2, sort = T) %>%
+ top_n(10,n) %>%
+ ggplot(aes(n, fct_reorder(dat2, n)))+
+ geom_col()
 
 
 ```
+
+The 10 most common bigrams as shown above: "covid 19", "prostate cancer", etc.
 
 ## Question 3
-Write a query against the rental table that returns the IDs of the customers who rented a film on July 5, 2005 (use the rental.rental_date column, and you can use the date() function to ignore the time component). Include a single row for each distinct customer ID.
+
+Calculate the TF-IDF value for each word-search term combination (here you want the search term to be the \"document\"). What are the 5 tokens from each search term with the highest TF-IDF value? How are the results different from the answers you got in question 1?
 
 ```{r}
 
-dbGetQuery(con, "SELECT customer_id, rental_date FROM rental WHERE rental_date BETWEEN DATE('2005-07-05') AND DATE('2005-07-06')")
+datTF <- dat %>%
+  unnest_tokens(abstract, abstract) %>% 
+  filter(!(abstract %in% stop_words$word)) %>%
+  count(abstract, term) %>%
+  group_by(term)%>%
+  bind_tf_idf(abstract, term, n) %>%
+  top_n(5, n) %>%
+  arrange(desc(tf_idf))
+datTF %>%
+  group_by(term) %>%
+  arrange(desc(tf_idf))
 
-```
-
-## Question 4.1
-Construct a query that retrieves all rows from the payment table where the amount is either 1.99, 7.99, 9.99.
-
-```{r}
-dbGetQuery(con, "SELECT * FROM payment WHERE amount IN (1.99,7.99,9.99) limit 20")
-
-
-```
-
-## Question 4.2
-Construct a query that retrieves all rows from the payment table where the amount is greater then 5
-
-```{r}
-dbGetQuery(con, "SELECT * FROM payment WHERE amount > 5 and amount < 8 limit 20")
-
-```
-
-## Question 5
-Retrieve all the payment IDs and their amounts from the customers whose last name is ‘DAVIS’.
-
-
-```{r}
-
-dbGetQuery(con, "SELECT payment_id, amount  FROM payment INNER JOIN customer ON payment.customer_id = customer.customer_id WHERE customer.last_name = 'DAVIS'")
-
-```
-
-## Question 6.1
-Use COUNT(*) to count the number of rows in rental.
-
-```{r}
-
-dbGetQuery(con, "SELECT count(*) FROM rental")
-
-```
-
-## Question 6.2
-Use COUNT(*) and GROUP BY to count the number of rentals for each customer_id.
-
-
-```{r}
-
-dbGetQuery(con, "SELECT customer_id, count(*) FROM rental GROUP BY customer_id  LIMIT 10;")
-
-```
-
-
-## Question 6.3
-Repeat the previous query and sort by the count in descending order.
-
-```{r}
-
-dbGetQuery(con, "SELECT customer_id, count(*) FROM rental GROUP BY customer_id ORDER BY count(*)  DESC  LIMIT 10;")
-
-```
-
-
-## Question 6.4
-Repeat the previous query but use HAVING to only keep the groups with 40 or more.
-
-```{r}
-dbGetQuery(con, "SELECT customer_id, count(*) FROM rental GROUP BY customer_id HAVING count(*) > 40 ORDER BY count(*)  DESC")
-
-```
-
-
-## Question 7
-Write a query that calculates a number of summary statistics for the payment table using MAX, MIN, AVG and SUM
-
-```{r}
-
-dbGetQuery(con, "SELECT MIN(amount), MAX(amount), AVG(amount), SUM(amount) FROM payment  LIMIT 10;")
-
-```
-
-
-## Question 7.1
-Modify the above query to do those calculations for each customer_id.
-
-```{r}
-
-dbGetQuery(con, "SELECT customer_id, MIN(amount), MAX(amount), AVG(amount), SUM(amount) FROM payment GROUP BY customer_id LIMIT 10;")
+unique(datTF$term)
 
 
 ```
 
+In question 1, after removing the stop words, the five remaining most frequent words are: covid, 19, patients, cancer, and prostate.
 
-## Question 7.2
-Modify the above query to only keep the customer_ids that have more then 5 payments
-
-```{r}
-
-dbGetQuery(con, "SELECT customer_id, COUNT(*), MIN(amount), MAX(amount), AVG(amount), SUM(amount) FROM payment GROUP BY customer_id HAVING COUNT(*) > 5")
-
-```
-
-
-
-##Cleanup
-
-```{r}
-# clean up
-dbDisconnect(con)
-```
-
-
-
-
-
-
-
-
-
+In question 3, the results are more meaningful. Since the TF-IDF value measures how relevant a word is to a document, the terms arranged by highest TF-IDF "covid", "prostate cancer", "preeclampsia", "meningitis", "cystic fibrosis", gives us more details of each terms.
